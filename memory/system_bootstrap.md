@@ -1,0 +1,656 @@
+# CyberNexus Rebuild Specification
+
+This system is being rebuilt from scratch.
+
+Goal:
+Create a national-level compliance verification platform for PISF 2025.
+
+This is NOT a continuation of the existing system.
+This is a controlled rebuild using lessons learned.
+
+Existing system is considered legacy and reference only.
+
+
+# Strategy
+
+We are NOT modifying existing backend.
+
+We are:
+- extracting core concepts
+- redesigning architecture
+- rebuilding clean system
+
+Legacy system is read-only reference.
+
+
+# Phase 1 Scope
+
+Only build:
+
+1. Authentication system
+2. Organization model
+3. Requirement engine
+4. Evidence system
+5. Assessment scoring
+
+Do NOT implement:
+- Threat intelligence
+- MITRE mapping
+- National dashboards
+- External integrations
+
+# Core Entity: Requirement
+
+Hierarchy:
+Domain → Control → Requirement
+
+Requirement is atomic unit.
+
+Each Requirement:
+- must be assessed
+- must have evidence
+- must have score
+
+
+# Database
+
+Old: SQLite
+New: PostgreSQL
+
+Reasons:
+- multi-tenant support
+- row-level security
+- scalability
+- audit integrity
+
+Rules:
+- UUID everywhere
+- normalized schema
+- versioning required
+
+
+# Architecture
+
+Controller:
+- handles request/response only
+
+Service:
+- contains business logic
+
+Repository:
+- database only
+
+Strict separation required.
+
+
+# Security
+
+- JWT via httpOnly cookies
+- RBAC enforced
+- no direct DB access from controllers
+- input validation required everywhere
+- audit logging mandatory
+
+
+# AI Role
+
+AI can:
+- explain
+- suggest
+- validate
+
+AI cannot:
+- assign compliance scores
+- change database
+- override auditors
+
+AI must be task-based, not chat-based.
+
+
+# Development Flow
+
+1. Define task in AGENTS.md
+2. Codex implements
+3. Reviewer checks
+4. Security checks
+5. Architect validates
+
+
+
+# Migration
+
+Existing system:
+- used for reference only
+
+We will:
+- extract controls data
+- extract mappings
+- discard architecture
+
+Rebuild database schema from scratch.
+
+
+
+## Phase 2 Auth Closure Note
+
+Phase 2 auth is complete and validated.
+
+Final applied migrations include:
+- 0001 auth schema
+- 0002 auth guards
+- 0003 issued-token cleanup / transition
+- 0004 hardening
+- 0005 behavior risk
+- 0006 risk guardrails
+- 0007 resilience ops
+- 0008 epoch confirmation
+- 0009 confirmation friction
+- 0010 dry-run event support
+- 0011 audit event constraint cleanup
+
+Final validation:
+- typecheck passed
+- migrations passed
+- tests passed: 32/32
+- dry-run epoch bump creates no confirmation request
+- dry-run does not mutate token epoch
+- dry-run writes TOKEN_EPOCH_BUMP_DRY_RUN audit event
+- request/confirm epoch bump flow remains intact
+
+
+## Phase 3 Closure Note
+
+Phase 3 organization onboarding and approval workflow is complete.
+
+Implemented:
+- GET /orgs/pending
+- POST /orgs/:orgId/approve
+- POST /orgs/:orgId/reject
+- POST /orgs/:orgId/suspend
+- POST /orgs/:orgId/reactivate
+
+Rules:
+- admin-only in middleware and service
+- reason required for every lifecycle mutation
+- strict transitions only:
+  - PENDING -> APPROVED
+  - PENDING -> REJECTED
+  - APPROVED -> SUSPENDED
+  - SUSPENDED -> APPROVED
+- all invalid transitions return 409
+- no resubmit flow
+- no compliance engine
+- no national dashboard
+
+Validation:
+- typecheck passed
+- migration passed
+- tests passed: 41 tests
+
+
+## Phase 5 Closure Note
+
+Phase 5 Assessment Foundation is complete.
+
+Implemented:
+- assessment_cycles
+- assessment_requirement_items
+- one DRAFT assessment cycle per organization
+- creation from ACTIVE PISF requirements only
+- requirement-level assessment status
+- initial status = UNASSESSED
+- internal finalization workflow
+- immutable audit events for:
+  - ASSESSMENT_DRAFT_CREATED
+  - ASSESSMENT_ITEM_STATUS_UPDATED
+  - ASSESSMENT_INTERNAL_FINALIZED
+
+Authorization:
+- read: all authenticated users in same org
+- create draft: admin only
+- update item: admin, responsible_officer, it_security_lead
+- finalize internal: admin only
+- auditor/viewer/commenter cannot mutate
+
+Validation:
+- migrations passed
+- typecheck passed
+- tests passed: 69/69
+- FK uses ON DELETE RESTRICT, not CASCADE
+- finalization blocked while UNASSESSED items remain
+- finalized cycles cannot be mutated
+- cross-org access blocked
+
+
+## Phase 6 Closure Note
+
+Phase 6 Evidence Foundation is complete.
+
+Implemented:
+- assessment_evidence_files
+- secure local evidence storage
+- single-file upload
+- evidence list/download/remove APIs
+- soft remove only
+- SHA-256 file hashing
+- file type allowlist
+- 25 MB max file size
+- max 10 active evidence files per assessment item
+- authenticated download handler
+- evidence audit events:
+  - EVIDENCE_UPLOADED
+  - EVIDENCE_DOWNLOADED
+  - EVIDENCE_REMOVED
+
+Security decisions:
+- storage_path is not persisted
+- storage_backend='LOCAL'
+- storage_key is used for storage lookup
+- validation_result_json stores validation metadata
+- malware_scan='NOT_PERFORMED'
+- original filename is metadata only
+- stored filename/key is generated by system
+- files are not served statically
+- path traversal guarded by safe storage resolution
+
+Authorization:
+- upload/remove: admin, responsible_officer, it_security_lead
+- list/download: all authenticated same-org users
+- upload/remove blocked after FINALIZED_INTERNAL
+
+Validation:
+- migrations passed
+- typecheck passed
+- tests passed: 82/82
+- storage schema corrected by migration 0018
+
+
+1. `assessment_evidence_checklists` required columns and `NOT NULL` status:
+
+```text
+dated_within_12_months: NO
+organization_specific: NO
+addresses_requirement: NO
+approved_by_authority: NO
+currently_in_force: NO
+evidence_quality: NO
+reviewed_by_user_id: NO
+reviewed_at: NO
+```
+
+2. Exact CHECK constraints for checklist enum fields:
+
+```text
+assessment_evidence_checklists_addresses_requirement_check:
+CHECK ((addresses_requirement = ANY (ARRAY['YES'::text, 'PARTIALLY'::text, 'NO'::text])))
+
+assessment_evidence_checklists_approved_by_authority_check:
+CHECK ((approved_by_authority = ANY (ARRAY['YES'::text, 'PENDING'::text, 'NO'::text, 'NOT_APPLICABLE'::text])))
+
+assessment_evidence_checklists_currently_in_force_check:
+CHECK ((currently_in_force = ANY (ARRAY['YES'::text, 'NO'::text, 'NOT_APPLICABLE'::text])))
+
+assessment_evidence_checklists_dated_within_12_months_check:
+CHECK ((dated_within_12_months = ANY (ARRAY['YES'::text, 'NO'::text, 'NOT_APPLICABLE'::text])))
+
+assessment_evidence_checklists_evidence_quality_check:
+CHECK ((evidence_quality = ANY (ARRAY['STRONG'::text, 'MODERATE'::text, 'WEAK'::text, 'NONE'::text])))
+
+assessment_evidence_checklists_organization_specific_check:
+CHECK ((organization_specific = ANY (ARRAY['YES'::text, 'NO'::text])))
+```
+
+3. Unique constraint/index for `assessment_requirement_item_id`:
+
+```text
+uq_assessment_evidence_checklists_item:
+UNIQUE (assessment_requirement_item_id)
+
+CREATE UNIQUE INDEX uq_assessment_evidence_checklists_item ON public.assessment_evidence_checklists USING btree (assessment_requirement_item_id)
+```
+
+4. `auth_audit_logs` `event_type` CHECK includes `EVIDENCE_CHECKLIST_UPSERTED`:
+
+```text
+chk_auth_audit_logs_event_type:
+CHECK ((event_type = ANY (ARRAY['REGISTER'::text, 'VERIFY_EMAIL'::text, 'LOGIN_SUCCESS'::text, 'LOGIN_FAILED'::text, 'REFRESH'::text, 'TOKEN_REUSE_DETECTED'::text, 'LOGOUT'::text, 'LOGOUT_ALL'::text, 'LOCKOUT_TRIGGERED'::text, 'CRITICAL_SECURITY_EVENT'::text, 'TOKEN_EPOCH_BUMP_DRY_RUN'::text, 'ORG_APPROVED'::text, 'ORG_REJECTED'::text, 'ORG_SUSPENDED'::text, 'ORG_REACTIVATED'::text, 'ASSESSMENT_DRAFT_CREATED'::text, 'ASSESSMENT_ITEM_STATUS_UPDATED'::text, 'ASSESSMENT_INTERNAL_FINALIZED'::text, 'EVIDENCE_UPLOADED'::text, 'EVIDENCE_REMOVED'::text, 'EVIDENCE_DOWNLOADED'::text, 'EVIDENCE_CHECKLIST_UPSERTED'::text])))
+```
+
+5. Sample audit metadata for `EVIDENCE_CHECKLIST_UPSERTED`:
+
+```json
+{
+  "org_id": "558de90e-021a-4ac1-aa20-2aeae31f70b1",
+  "category": "evidence_checklist_upserted",
+  "timestamp": "2026-04-25T00:00:00.000Z",
+  "request_ip": "127.0.0.1",
+  "user_agent": "phase7-verification",
+  "actor_org_id": "558de90e-021a-4ac1-aa20-2aeae31f70b1",
+  "actor_user_id": "18ff21db-d189-4ab4-bdf6-3555b4ee29e5",
+  "evidence_quality": "MODERATE",
+  "assessment_cycle_id": "00000000-0000-0000-0000-000000000001",
+  "assessment_requirement_item_id": "00000000-0000-0000-0000-000000000002"
+}
+```
+
+6. Test confirmation:
+
+```text
+npm test: PASS after escalated retry
+Test files: 15 passed / 0 failed
+Tests: 88 passed / 0 failed
+
+Confirmed:
+- finalization blocked when non-NOT_APPLICABLE item lacks checklist
+- NOT_APPLICABLE item does not require checklist
+- checklist PUT blocked after FINALIZED_INTERNAL
+
+Initial sandbox npm test failed before execution with spawn EPERM.
+```
+
+7. Code/test files changed during this verification step:
+
+```text
+No code/test files changed.
+```
+
+
+## Phase 8 Closure Note
+
+Phase 8 Scoring Foundation is complete.
+
+Implemented:
+- assessment_score_snapshots
+- assessment_requirement_scores
+- assessment_control_scores
+- deterministic SCORING_V1
+- admin-only score calculation
+- same-org score read access
+- idempotent recalculation with one current snapshot per assessment cycle
+- stale requirement/control score rows removed on recalculation
+- audit event:
+  - ASSESSMENT_SCORE_CALCULATED
+
+Scoring rules:
+- NOT_COMPLIANT = 0
+- PARTIALLY_COMPLIANT = 40
+- MOSTLY_COMPLIANT = 70
+- FULLY_COMPLIANT = 100
+- NOT_APPLICABLE = excluded
+- UNASSESSED blocks scoring
+
+Evidence quality caps:
+- STRONG = 100
+- MODERATE = 80
+- WEAK = 50
+- NONE = 20
+
+Requirement score:
+- final_score = min(status_score, evidence_quality_cap)
+
+Labels:
+- 0–49.99 = NON_COMPLIANT
+- 50–69.99 = PARTIALLY_COMPLIANT
+- 70–89.99 = SUBSTANTIALLY_COMPLIANT
+- 90–100 = COMPLIANT
+
+Validation:
+- migrations passed
+- typecheck passed
+- tests passed: 99/99
+- score examples verified
+- label boundaries verified
+- recalculation idempotency verified
+- cross-org access blocked
+- read endpoints do not audit
+- successful calculation audits once
+
+
+## Phase 9 Closure Note
+
+Phase 9 Internal Review + Submission Readiness is complete.
+
+Implemented:
+- READY_FOR_SUBMISSION assessment cycle state
+- assessment_submission_readiness table
+- readiness checklist/declaration
+- admin-only mark-ready action
+- mutation lock after READY_FOR_SUBMISSION
+- audit events:
+  - SUBMISSION_READINESS_UPSERTED
+  - ASSESSMENT_MARKED_READY_FOR_SUBMISSION
+
+Lifecycle:
+- DRAFT
+- FINALIZED_INTERNAL
+- READY_FOR_SUBMISSION
+
+Readiness requirements:
+- cycle must be FINALIZED_INTERNAL
+- readiness row must exist
+- all six confirmations must be true
+- declaration required
+- score snapshot required
+- score calculated_at must be fresh against finalized_internal_at
+
+Locks after READY_FOR_SUBMISSION:
+- assessment item update blocked
+- evidence upload/remove blocked
+- evidence checklist upsert blocked
+- score recalculation blocked
+
+Validation:
+- migrations passed
+- typecheck passed
+- tests passed: 109/109
+- full Phase 1–8 regression still passing
+- cross-org access blocked
+- read routes do not audit
+
+## Phase 10 Closure Note
+
+Phase 10 External Submission Package is complete.
+
+Implemented:
+- assessment_submission_packages
+- immutable package manifest
+- manifest_hash using SHA-256 canonical JSON
+- package status:
+  - CREATED
+  - VOIDED
+- one active CREATED package per assessment cycle
+- VOIDED packages remain readable by package ID
+- replacement package allowed after previous active package is VOIDED
+- audit events:
+  - SUBMISSION_PACKAGE_CREATED
+  - SUBMISSION_PACKAGE_VOIDED
+
+Immutability:
+- package_number immutable
+- org_id immutable
+- assessment_cycle_id immutable
+- score_snapshot_id immutable
+- readiness_id immutable
+- manifest_json immutable
+- manifest_hash immutable
+- created_by_user_id immutable
+- created_at immutable
+
+Validation:
+- migrations passed
+- typecheck passed
+- tests passed: 122/122
+- manifest hash verified
+- FK delete behavior is RESTRICT
+- no cascade delete
+- no physical delete path
+- read routes do not audit
+- create/void audit rows verified
+
+
+## Phase 11 Closure Note
+
+Phase 11 External Submission Intake is complete.
+
+Implemented:
+- external_submissions
+- external submission statuses:
+  - SUBMITTED
+  - WITHDRAWN
+- submit package into external intake
+- withdraw external submission
+- read/list external submissions
+- one active SUBMITTED submission per submission package
+- resubmission allowed after withdrawal
+- package status remains CREATED after submission
+- package void blocked while active SUBMITTED submission exists
+- audit events:
+  - EXTERNAL_SUBMISSION_CREATED
+  - EXTERNAL_SUBMISSION_WITHDRAWN
+
+Integrity:
+- package manifest hash revalidated before submit
+- submitted identity fields are immutable:
+  - submission_number
+  - org_id
+  - submission_package_id
+  - assessment_cycle_id
+  - submitted_by_user_id
+  - submitted_at
+  - created_at
+
+Validation:
+- migrations passed
+- typecheck passed
+- tests passed: 137/137
+- FK delete behavior is RESTRICT
+- no cascade delete
+- no physical delete path
+- read routes do not audit
+- submit/withdraw audit rows verified
+
+
+## Phase 12 Closure Note
+
+Phase 12 PKCERT Intake Review Queue is complete.
+
+Implemented:
+- pkcert_users overlay
+- pkcert_intake_reviews
+- PKCERT intake statuses:
+  - PENDING_INTAKE
+  - IN_INTAKE_REVIEW
+  - INTAKE_REVIEWED
+- PKCERT intake queue/list/detail APIs
+- assignment/start/mark-reviewed/notes flows
+- auto-created intake rows when external submission is created
+- backfill for existing SUBMITTED external submissions
+- withdrawn external submissions remain readable but block intake mutations
+- audit events:
+  - PKCERT_INTAKE_CREATED
+  - PKCERT_INTAKE_ASSIGNED
+  - PKCERT_INTAKE_STARTED
+  - PKCERT_INTAKE_REVIEWED
+  - PKCERT_INTAKE_NOTES_UPDATED
+
+Authorization:
+- normal org users cannot access PKCERT intake APIs
+- org admin alone is insufficient
+- active pkcert_users only
+- PKCERT_ADMIN can read/assign/start/mark-reviewed/notes
+- PKCERT_REVIEWER can read
+- assigned reviewer can start/mark-reviewed/notes
+
+Audit:
+- PKCERT_INTAKE_CREATED uses actor_type=SYSTEM
+- triggered_by_user_id and triggered_by_org_id preserve submitter context
+- PKCERT user actions use actor_type=USER and pkcert_role
+
+Validation:
+- migrations passed
+- typecheck passed
+- tests passed: 152/152
+- FK delete behavior is RESTRICT
+- no cascade delete
+- intake identity fields immutable
+- read routes do not audit
+
+## Phase 13 Closure Note
+
+Phase 13 PKCERT Decision Workflow is complete.
+
+Implemented:
+- pkcert_submission_decisions
+- immutable PKCERT decision records
+- decisions:
+  - ACCEPTED
+  - REJECTED
+  - RETURNED_FOR_CORRECTION
+- one decision per external submission
+- PKCERT_ADMIN-only decision creation
+- PKCERT_ADMIN and PKCERT_REVIEWER decision read
+- organization-visible decision read
+- withdrawal blocked after decision
+- audit event:
+  - PKCERT_DECISION_RECORDED
+
+Immutability:
+- decision records cannot be updated after insert
+- immutable trigger blocks all direct UPDATE attempts
+
+Validation:
+- migrations passed
+- typecheck passed
+- tests passed: 165/165
+- FK delete behavior is RESTRICT
+- no cascade delete
+- read routes do not audit
+- organization read excludes internal PKCERT notes/context
+- external submission remains SUBMITTED after decision
+- package and intake statuses are not mutated by decision creation
+
+
+## Phase 14 Closure Note
+
+Phase 14 Correction Resubmission Foundation is complete.
+
+Implemented:
+- correction_resubmissions
+- correction statuses:
+  - DRAFT
+  - READY_FOR_RESUBMISSION
+  - VOIDED
+- correction draft creation from RETURNED_FOR_CORRECTION decisions
+- correction summary update
+- mark-ready flow
+- void flow
+- same-org read/list
+- one active correction per PKCERT decision
+- replacement correction allowed after VOIDED
+- audit events:
+  - CORRECTION_RESUBMISSION_CREATED
+  - CORRECTION_RESUBMISSION_SUMMARY_UPDATED
+  - CORRECTION_RESUBMISSION_MARKED_READY
+  - CORRECTION_RESUBMISSION_VOIDED
+
+Authorization:
+- read: same-org authenticated users
+- create: admin only
+- summary update: admin, responsible_officer, it_security_lead
+- mark ready: admin only
+- void: admin only
+- viewer/commenter/auditor cannot mutate
+- PKCERT users have no special mutation access unless also valid same-org users
+
+Validation:
+- migrations passed
+- typecheck passed
+- tests passed: 175/175
+- FK delete behavior is RESTRICT
+- no cascade delete
+- correction identity fields immutable
+- no physical delete path
+- reads do not audit
+
+
+
